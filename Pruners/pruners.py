@@ -1,5 +1,11 @@
+from collections import OrderedDict
+import copy
+
 import torch
 import numpy as np
+
+output_activations = []
+
 
 class Pruner:
     def __init__(self, masked_parameters):
@@ -10,9 +16,8 @@ class Pruner:
         raise NotImplementedError
 
     def _global_mask(self, sparsity):
-        r"""Updates masks of model with scores by sparsity level globally.
-        """
-        # # Set score for masked parameters to -inf 
+        r"""Updates masks of model with scores by sparsity level globally."""
+        # # Set score for masked parameters to -inf
         # for mask, param in self.masked_parameters:
         #     score = self.scores[id(param)]
         #     score[mask == 0.0] = -np.inf
@@ -23,41 +28,37 @@ class Pruner:
         if not k < 1:
             threshold, _ = torch.kthvalue(global_scores, k)
             for mask, param in self.masked_parameters:
-                score = self.scores[id(param)] 
-                zero = torch.tensor([0.]).to(mask.device)
-                one = torch.tensor([1.]).to(mask.device)
+                score = self.scores[id(param)]
+                zero = torch.tensor([0.0]).to(mask.device)
+                one = torch.tensor([1.0]).to(mask.device)
                 mask.copy_(torch.where(score <= threshold, zero, one))
-    
+
     def _local_mask(self, sparsity):
-        r"""Updates masks of model with scores by sparsity level parameter-wise.
-        """
+        r"""Updates masks of model with scores by sparsity level parameter-wise."""
         for mask, param in self.masked_parameters:
             score = self.scores[id(param)]
             k = int((1.0 - sparsity) * score.numel())
             if not k < 1:
                 threshold, _ = torch.kthvalue(torch.flatten(score), k)
-                zero = torch.tensor([0.]).to(mask.device)
-                one = torch.tensor([1.]).to(mask.device)
+                zero = torch.tensor([0.0]).to(mask.device)
+                one = torch.tensor([1.0]).to(mask.device)
                 mask.copy_(torch.where(score <= threshold, zero, one))
 
     def mask(self, sparsity, scope):
-        r"""Updates masks of model with scores by sparsity according to scope.
-        """
-        if scope == 'global':
+        r"""Updates masks of model with scores by sparsity according to scope."""
+        if scope == "global":
             self._global_mask(sparsity)
-        if scope == 'local':
+        if scope == "local":
             self._local_mask(sparsity)
 
     @torch.no_grad()
     def apply_mask(self):
-        r"""Applies mask to prunable parameters.
-        """
+        r"""Applies mask to prunable parameters."""
         for mask, param in self.masked_parameters:
             param.mul_(mask)
 
     def alpha_mask(self, alpha):
-        r"""Set all masks to alpha in model.
-        """
+        r"""Set all masks to alpha in model."""
         for mask, _ in self.masked_parameters:
             mask.fill_(alpha)
 
@@ -70,15 +71,15 @@ class Pruner:
 
     def invert(self):
         for v in self.scores.values():
-            v.div_(v**2)
+            v.div_(v ** 2)
 
     def stats(self):
-        r"""Returns remaining and total number of prunable parameters.
-        """
-        remaining_params, total_params = 0, 0 
+        r"""Returns remaining and total number of prunable parameters."""
+        remaining_params, total_params = 0, 0
+
         for mask, _ in self.masked_parameters:
-             remaining_params += mask.detach().cpu().numpy().sum()
-             total_params += mask.numel()
+            remaining_params += mask.detach().cpu().numpy().sum()
+            total_params += mask.numel()
         return remaining_params, total_params
 
 
@@ -94,10 +95,78 @@ class Rand(Pruner):
 class Mag(Pruner):
     def __init__(self, masked_parameters):
         super(Mag, self).__init__(masked_parameters)
-    
+
     def score(self, model, loss, dataloader, device):
         for _, p in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.data).detach().abs_()
+
+
+def get_activations(module, input, output):
+    global output_activations
+
+    output_activations.append(torch.clone(output))
+
+
+class TaylorPruner(Pruner):
+    def __init__(self, masked_parameters):
+        super().__init__(masked_parameters)
+
+    def score(self, model, loss, dataloader, device):
+        global output_activations
+
+        self.generate_mapping(model)
+        self.register_hooks(model)
+
+        with torch.no_grad():
+            for batch_idx, (data, target) in enumerate(dataloader):
+                output_activations = []
+                data, target = data.to(device), target.to(device)
+                model(data)
+                # loss(output, target).backward()
+                break
+
+            assert len(output_activations) == len(self.mapping)
+            for activation, (layer_index, param_index) in zip(
+                output_activations, self.mapping
+            ):
+                params = self.masked_parameters[param_index][1]
+                neuron_scores = torch.std(activation, dim=0)
+                scores = neuron_scores.unsqueeze(1).repeat(1, params.shape[-1])
+                self.scores[id(params)] = scores
+
+        self.deregister_hooks(model)
+
+    def retrieve_activations(self):
+        global output_activations
+        print(len(output_activations))
+
+    def register_hooks(self, model):
+        self.old_hooks = []
+        for index, _ in self.mapping:
+            layer = model[index]
+            self.old_hooks.append(copy.deepcopy(layer._forward_hooks))
+            layer.register_forward_hook(get_activations)
+
+    def deregister_hooks(self, model):
+        for i, (index, _) in enumerate(self.mapping):
+            layer = model[index]
+            layer._forward_hooks = self.old_hooks[i]
+
+    def generate_mapping(self, model):
+        self.mapping = []
+        counter = 0
+        for i, layer in enumerate(model):
+            if not hasattr(layer, "weight"):
+                continue
+
+            weights = layer.weight
+            while counter < len(self.masked_parameters):
+                if bool(torch.all(weights == self.masked_parameters[counter][1])):
+                    self.mapping.append((i, counter))
+                    counter += 1
+                    break
+
+                counter += 1
 
 
 # Based on https://github.com/mi-lad/snip/blob/master/snip.py#L18
@@ -147,7 +216,9 @@ class GraSP(Pruner):
             output = model(data) / self.temp
             L = loss(output, target)
 
-            grads = torch.autograd.grad(L, [p for (_, p) in self.masked_parameters], create_graph=False)
+            grads = torch.autograd.grad(
+                L, [p for (_, p) in self.masked_parameters], create_graph=False
+            )
             flatten_grads = torch.cat([g.reshape(-1) for g in grads if g is not None])
             stopped_grads += flatten_grads
 
@@ -157,12 +228,14 @@ class GraSP(Pruner):
             output = model(data) / self.temp
             L = loss(output, target)
 
-            grads = torch.autograd.grad(L, [p for (_, p) in self.masked_parameters], create_graph=True)
+            grads = torch.autograd.grad(
+                L, [p for (_, p) in self.masked_parameters], create_graph=True
+            )
             flatten_grads = torch.cat([g.reshape(-1) for g in grads if g is not None])
-            
+
             gnorm = (stopped_grads * flatten_grads).sum()
             gnorm.backward()
-        
+
         # calculate score Hg * theta (negate to remove top percent)
         for _, p in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.grad * p.data).detach()
@@ -180,7 +253,6 @@ class SynFlow(Pruner):
         super(SynFlow, self).__init__(masked_parameters)
 
     def score(self, model, loss, dataloader, device):
-      
         @torch.no_grad()
         def linearize(model):
             # model.double()
@@ -195,18 +267,19 @@ class SynFlow(Pruner):
             # model.float()
             for name, param in model.state_dict().items():
                 param.mul_(signs[name])
-        
+
         signs = linearize(model)
 
         (data, _) = next(iter(dataloader))
-        input_dim = list(data[0,:].shape)
-        input = torch.ones([1] + input_dim).to(device)#, dtype=torch.float64).to(device)
+        input_dim = list(data[0, :].shape)
+        input = torch.ones([1] + input_dim).to(
+            device
+        )  # , dtype=torch.float64).to(device)
         output = model(input)
         torch.sum(output).backward()
-        
+
         for _, p in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.grad * p).detach().abs_()
             p.grad.data.zero_()
 
         nonlinearize(model, signs)
-
