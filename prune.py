@@ -2,6 +2,8 @@ from tqdm import tqdm
 import torch
 import numpy as np
 
+from Pruners import pruners
+
 
 def prune_loop(
     model,
@@ -36,6 +38,8 @@ def prune_loop(
             pruner.invert()
 
         pruner.mask(sparse, scope)
+        if isinstance(pruner, pruners.TaylorPruner):
+            pruner.add_skip_weights(model)
 
     # Reainitialize weights
     if reinitialize:
@@ -47,10 +51,10 @@ def prune_loop(
 
     # Confirm sparsity level
     remaining_params, total_params = pruner.stats()
-    if np.abs(remaining_params - total_params * sparsity) >= 5:
-        print(
-            "ERROR: {} prunable parameters remaining, expected {}".format(
-                remaining_params, total_params * sparsity
-            )
-        )
-        quit()
+    # if np.abs(remaining_params - total_params * sparsity) >= 5:
+    #     print(
+    #         "ERROR: {} prunable parameters remaining, expected {}".format(
+    #             remaining_params, total_params * sparsity
+    #         )
+    #     )
+    #     quit()

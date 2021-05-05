@@ -120,6 +120,7 @@ def dataloader(dataset, batch_size, train, workers, length=None):
 
 def model(model_architecture, model_class):
     default_models = {
+        "taylor_fc": mlp.taylor_fc,
         "fc": mlp.fc,
         "conv": mlp.conv,
     }

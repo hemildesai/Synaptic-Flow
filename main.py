@@ -26,6 +26,7 @@ if __name__ == "__main__":
         default="fc",
         choices=[
             "fc",
+            "taylor_fc",
             "conv",
             "vgg11",
             "vgg11-bn",

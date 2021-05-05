@@ -2,6 +2,7 @@ from collections import OrderedDict
 import copy
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 
 output_activations = []
@@ -112,29 +113,55 @@ class TaylorPruner(Pruner):
         super().__init__(masked_parameters)
 
     def score(self, model, loss, dataloader, device):
+        self.diagonals = []
         global output_activations
 
         self.generate_mapping(model)
         self.register_hooks(model)
 
-        with torch.no_grad():
-            for batch_idx, (data, target) in enumerate(dataloader):
-                output_activations = []
-                data, target = data.to(device), target.to(device)
-                model(data)
-                # loss(output, target).backward()
-                break
+        # with torch.no_grad():
+        for batch_idx, (data, target) in enumerate(dataloader):
+            output_activations = []
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            loss(output, target).backward()
+            break
 
-            assert len(output_activations) == len(self.mapping)
-            for activation, (layer_index, param_index) in zip(
-                output_activations, self.mapping
-            ):
-                params = self.masked_parameters[param_index][1]
-                neuron_scores = torch.std(activation, dim=0)
-                scores = neuron_scores.unsqueeze(1).repeat(1, params.shape[-1])
-                self.scores[id(params)] = scores
+        assert len(output_activations) == len(self.mapping)
+        for activation, (layer_index, param_index) in zip(
+            output_activations, self.mapping
+        ):
+            params = self.masked_parameters[param_index][1]
+            neuron_scores = torch.std(activation, dim=0)
+            scores = neuron_scores.unsqueeze(1).repeat(1, params.shape[-1])
+            self.scores[id(params)] = scores
+
+            act_mean = torch.mean(torch.clone(activation), dim=0).detach()
+            act_mean.requires_grad = True
+            output = F.relu(act_mean)
+            output.backward(torch.ones_like(act_mean))
+            diag = torch.diag(act_mean.grad)
+            self.diagonals.append(diag)
 
         self.deregister_hooks(model)
+
+    def add_skip_weights(self, model):
+        for i, (layer_index, param_index) in enumerate(self.mapping):
+            if i + 1 < len(self.mapping):
+                next_layer = model[self.mapping[i + 1][0]]
+                layer = model[layer_index]
+                neuron_mask = layer.weight_mask[:, 0]
+                next_layer_mask = neuron_mask.unsqueeze(0).repeat(
+                    next_layer.weight.shape[0], 1
+                )
+                diag = self.diagonals[i]
+
+                w1 = torch.clone(layer.weight * layer.weight_mask).detach()
+                w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
+                w_c = w1.T @ diag @ w2.T
+                w_c = w_c.T
+                w_c.requires_grad = True
+                next_layer.add_skip_weights(w_c)
 
     def retrieve_activations(self):
         global output_activations
