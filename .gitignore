@@ -141,3 +141,9 @@ hyperopt/logs/*.txt
 Data/
 
 # experiments
+
+# Windows
+desktop.ini
+
+# IDE
+.idea
