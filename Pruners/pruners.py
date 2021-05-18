@@ -104,7 +104,6 @@ class Mag(Pruner):
 
 def get_activations(module, input, output):
     global output_activations
-
     output_activations.append(torch.clone(output))
 
 
@@ -135,10 +134,10 @@ class TaylorPruner(Pruner):
             neuron_scores = torch.std(activation, dim=0)
             scores = neuron_scores.unsqueeze(1).repeat(1, params.shape[-1])
             self.scores[id(params)] = scores
-
             act_mean = torch.mean(torch.clone(activation), dim=0).detach()
             act_mean.requires_grad = True
             output = F.relu(act_mean)
+            # output = F.sigmoid(act_mean)
             output.backward(torch.ones_like(act_mean))
             diag = torch.diag(act_mean.grad)
             self.diagonals.append(diag)
@@ -146,22 +145,28 @@ class TaylorPruner(Pruner):
         self.deregister_hooks(model)
 
     def add_skip_weights(self, model):
+        global output_activations
         for i, (layer_index, param_index) in enumerate(self.mapping):
             if i + 1 < len(self.mapping):
                 next_layer = model[self.mapping[i + 1][0]]
                 layer = model[layer_index]
-                neuron_mask = layer.weight_mask[:, 0]
+                mask_complement = 1 - layer.weight_mask
+                neuron_mask = mask_complement[:, 0]
                 next_layer_mask = neuron_mask.unsqueeze(0).repeat(
                     next_layer.weight.shape[0], 1
                 )
                 diag = self.diagonals[i]
 
-                w1 = torch.clone(layer.weight * layer.weight_mask).detach()
+                w1 = torch.clone(layer.weight * mask_complement).detach()
                 w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
                 w_c = w1.T @ diag @ w2.T
                 w_c = w_c.T
                 w_c.requires_grad = True
-                next_layer.add_skip_weights(w_c)
+
+                b1 = torch.clone(layer.bias * neuron_mask).detach()
+                act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
+                b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
+                next_layer.add_skip_weights(w_c, b_c)
 
     def retrieve_activations(self):
         global output_activations

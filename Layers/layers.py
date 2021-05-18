@@ -45,10 +45,12 @@ class TaylorLinear(nn.Linear):
 
     def skip_weight_forward(self, skip_input):
         W = self.skip_weight
-        return F.linear(skip_input, W)
+        b = self.skip_bias
+        return F.linear(skip_input, W, b)
 
-    def add_skip_weights(self, skip_weight):
+    def add_skip_weights(self, skip_weight, skip_bias):
         self.register_buffer("skip_weight", skip_weight)
+        self.register_buffer("skip_bias", skip_bias)
 
 
 class Conv2d(nn.Conv2d):
