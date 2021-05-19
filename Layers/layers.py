@@ -36,12 +36,10 @@ class TaylorLinear(nn.Linear):
             b = self.bias_mask * self.bias
         else:
             b = self.bias
-
+        out = F.linear(input, W, b)
         if skip_input is not None and hasattr(self, "skip_weight"):
-            skip_output = self.skip_weight_forward(skip_input)
-            return F.linear(input, W, b) + skip_output
-        else:
-            return F.linear(input, W, b)
+            out += F.linear(skip_input, self.skip_weight, self.skip_bias)
+        return out
 
     def skip_weight_forward(self, skip_input):
         W = self.skip_weight
@@ -49,8 +47,10 @@ class TaylorLinear(nn.Linear):
         return F.linear(skip_input, W, b)
 
     def add_skip_weights(self, skip_weight, skip_bias):
-        self.register_buffer("skip_weight", skip_weight)
-        self.register_buffer("skip_bias", skip_bias)
+        skip_weight = torch.nn.Parameter(skip_weight)
+        skip_bias = torch.nn.Parameter(skip_bias)
+        self.register_parameter("skip_weight", skip_weight)
+        self.register_parameter("skip_bias", skip_bias)
 
 
 class Conv2d(nn.Conv2d):

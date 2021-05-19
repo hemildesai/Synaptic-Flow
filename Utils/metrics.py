@@ -11,25 +11,29 @@ def summary(model, scores, flops, prunable):
     rows = []
     for name, module in model.named_modules():
         for pname, param in module.named_parameters(recurse=False):
-            pruned = prunable(module) and id(param) in scores.keys()
-            if pruned:
-                sparsity = getattr(module, pname+'_mask').detach().cpu().numpy().mean()
-                score = scores[id(param)].detach().cpu().numpy()
-            else:
-                sparsity = 1.0
-                score = np.zeros(1)
-            shape = param.detach().cpu().numpy().shape
-            flop = flops[name][pname]
-            score_mean = score.mean()
-            score_var = score.var()
-            score_sum = score.sum()
-            score_abs_mean = np.abs(score).mean()
-            score_abs_var  = np.abs(score).var()
-            score_abs_sum  = np.abs(score).sum()
-            rows.append([name, pname, sparsity, np.prod(shape), shape, flop,
-                         score_mean, score_var, score_sum, 
-                         score_abs_mean, score_abs_var, score_abs_sum, 
-                         pruned])
+            try:
+                pruned = prunable(module) and id(param) in scores.keys()
+                if pruned:
+                    sparsity = getattr(module, pname+'_mask').detach().cpu().numpy().mean()
+                    score = scores[id(param)].detach().cpu().numpy()
+                else:
+                    sparsity = 1.0
+                    score = np.zeros(1)
+                shape = param.detach().cpu().numpy().shape
+                flop = flops[name][pname]
+                score_mean = score.mean()
+                score_var = score.var()
+                score_sum = score.sum()
+                score_abs_mean = np.abs(score).mean()
+                score_abs_var  = np.abs(score).var()
+                score_abs_sum  = np.abs(score).sum()
+                rows.append([name, pname, sparsity, np.prod(shape), shape, flop,
+                             score_mean, score_var, score_sum,
+                             score_abs_mean, score_abs_var, score_abs_sum,
+                             pruned])
+            except KeyError:
+                # TODO: count flops and weights for skip connections
+                continue
 
     columns = ['module', 'param', 'sparsity', 'size', 'shape', 'flops', 'score mean', 'score variance', 
                'score sum', 'score abs mean', 'score abs variance', 'score abs sum', 'prunable']

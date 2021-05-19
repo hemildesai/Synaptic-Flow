@@ -37,9 +37,7 @@ def taylor_fc(
     size = np.prod(input_shape)
 
     # Linear feature extractor
-    modules = [nn.Flatten()]
-    modules.append(linear_layer(size, N))
-    modules.append(nonlinearity)
+    modules = [nn.Flatten(), linear_layer(size, N), nonlinearity]
     for i in range(L - 2):
         modules.append(linear_layer(N, N))
         modules.append(nonlinearity)
@@ -71,9 +69,7 @@ def fc(
     size = np.prod(input_shape)
 
     # Linear feature extractor
-    modules = [nn.Flatten()]
-    modules.append(linear_layer(size, N))
-    modules.append(nonlinearity)
+    modules = [nn.Flatten(), linear_layer(size, N), nonlinearity]
     for i in range(L - 2):
         modules.append(linear_layer(N, N))
         modules.append(nonlinearity)
