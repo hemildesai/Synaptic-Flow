@@ -12,10 +12,10 @@ class TaylorMLP(nn.Sequential):
         for i, module in enumerate(self):
             if (
                 isinstance(module, layers.TaylorLinear)
-                and len(outputs) > 2
+                and len(outputs) > 5
                 and hasattr(module, "skip_weight")
             ):
-                output = module(output, skip_input=outputs[-3])
+                output = module(output, skip_input=outputs[-3], skip_input_2=outputs[-6])
             else:
                 output = module(output)
 

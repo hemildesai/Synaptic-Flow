@@ -172,6 +172,28 @@ class TaylorPruner(Pruner):
 
                 next_layer.add_skip_weights(w_c, b_c)
 
+            if i + 2 < len(self.mapping):
+                next_layer_index = self.mapping[i + 2][0]
+                next_layer = model[next_layer_index]
+                neuron_mask = mask_complement[:, 0]
+                next_layer_mask = neuron_mask.unsqueeze(0).repeat(
+                next_layer.weight.shape[0], 1
+                )
+                diag = self.diagonals[i]
+
+                w1 = torch.clone(layer.weight * mask_complement).detach()
+                w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
+                w_c = w1.T @ diag @ w2.T
+                w_c = w_c.T
+                w_c.requires_grad = True
+
+                b1 = torch.clone(layer.bias * neuron_mask).detach()
+                act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
+                b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
+                b_c.requires_grad = True
+
+                next_layer.add_skip_weights_2(w_c, b_c)
+
     def retrieve_activations(self):
         global output_activations
         print(len(output_activations))
