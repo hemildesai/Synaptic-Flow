@@ -127,33 +127,33 @@ class TaylorPruner(Pruner):
             break
 
         assert len(output_activations) == len(self.mapping)
-        for activation, (layer_index, param_index) in zip(
-            output_activations, self.mapping
-        ):
-            params = self.masked_parameters[param_index][1]
-            neuron_scores = torch.std(activation, dim=0)
-            scores = neuron_scores.unsqueeze(1).repeat(1, params.shape[-1])
-            self.scores[id(params)] = scores
+        for activation in output_activations:
             act_mean = torch.mean(torch.clone(activation), dim=0).detach()
             act_mean.requires_grad = True
             output = F.relu(act_mean)
-            # output = F.sigmoid(act_mean)
             output.backward(torch.ones_like(act_mean))
             diag = torch.diag(act_mean.grad)
             self.diagonals.append(diag)
 
         self.deregister_hooks(model)
 
+        for _, p in self.masked_parameters:
+            self.scores[id(p)] = torch.clone(p.data).detach().abs_()
+
     def add_skip_weights(self, model):
         global output_activations
         for i, (layer_index, param_index) in enumerate(self.mapping):
             layer = model[layer_index]
             mask_complement = 1 - layer.weight_mask
-            # for j in range(i+1, len(self.mapping)):
             if i + 1 < len(self.mapping):
                 next_layer_index = self.mapping[i + 1][0]
                 next_layer = model[next_layer_index]
-                neuron_mask = mask_complement[:, 0]
+                # neuron_mask = mask_complement[:, 0]
+                neuron_mask = torch.mean(mask_complement, dim=1)
+                # import pdb; pdb.set_trace()
+                neuron_mask[neuron_mask < 0.95] = 0
+                # print("Neurons skipped: ", (neuron_mask != 0.).int().sum())
+                # import pdb; pdb.set_trace()
                 next_layer_mask = neuron_mask.unsqueeze(0).repeat(
                     next_layer.weight.shape[0], 1
                 )
@@ -163,36 +163,21 @@ class TaylorPruner(Pruner):
                 w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
                 w_c = w1.T @ diag @ w2.T
                 w_c = w_c.T
+                flat_w_c = w_c.flatten()
+                w_c[
+                    w_c.abs() < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.99))).values
+                    ] = 0
                 w_c.requires_grad = True
 
                 b1 = torch.clone(layer.bias * neuron_mask).detach()
                 act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
                 b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
                 b_c.requires_grad = True
+                # import pdb; pdb.set_trace()
+                print("Comp Weights: ", (w_c != 0.).int().sum())
+                # print("Bias Weights: ", (b_c != 0.).int().sum())
 
                 next_layer.add_skip_weights(w_c, b_c)
-
-            if i + 2 < len(self.mapping):
-                next_layer_index = self.mapping[i + 2][0]
-                next_layer = model[next_layer_index]
-                neuron_mask = mask_complement[:, 0]
-                next_layer_mask = neuron_mask.unsqueeze(0).repeat(
-                next_layer.weight.shape[0], 1
-                )
-                diag = self.diagonals[i]
-
-                w1 = torch.clone(layer.weight * mask_complement).detach()
-                w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
-                w_c = w1.T @ diag @ w2.T
-                w_c = w_c.T
-                w_c.requires_grad = True
-
-                b1 = torch.clone(layer.bias * neuron_mask).detach()
-                act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
-                b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
-                b_c.requires_grad = True
-
-                next_layer.add_skip_weights_2(w_c, b_c)
 
     def retrieve_activations(self):
         global output_activations
