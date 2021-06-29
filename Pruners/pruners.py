@@ -145,15 +145,12 @@ class TaylorPruner(Pruner):
         for i, (layer_index, param_index) in enumerate(self.mapping):
             layer = model[layer_index]
             mask_complement = 1 - layer.weight_mask
+            print(mask_complement.shape)
             if i + 1 < len(self.mapping):
                 next_layer_index = self.mapping[i + 1][0]
                 next_layer = model[next_layer_index]
-                # neuron_mask = mask_complement[:, 0]
                 neuron_mask = torch.mean(mask_complement, dim=1)
-                # import pdb; pdb.set_trace()
                 neuron_mask[neuron_mask < 0.95] = 0
-                # print("Neurons skipped: ", (neuron_mask != 0.).int().sum())
-                # import pdb; pdb.set_trace()
                 next_layer_mask = neuron_mask.unsqueeze(0).repeat(
                     next_layer.weight.shape[0], 1
                 )
@@ -210,6 +207,41 @@ class TaylorPruner(Pruner):
                     break
 
                 counter += 1
+
+
+class TaylorConvPruner(TaylorPruner):
+    def add_skip_weights(self, model):
+        global output_activations
+        for i, (layer_index, param_index) in enumerate(self.mapping):
+            layer = model[layer_index]
+            mask_complement = 1 - layer.weight_mask
+            if i + 1 < len(self.mapping):
+                next_layer_index = self.mapping[i + 1][0]
+                next_layer = model[next_layer_index]
+                neuron_mask = torch.mean(mask_complement, dim=1)
+                neuron_mask[neuron_mask < 0.95] = 0
+                next_layer_mask = neuron_mask.unsqueeze(0).repeat(
+                    next_layer.weight.shape[0], 1
+                )
+                diag = self.diagonals[i]
+
+                w1 = torch.clone(layer.weight * mask_complement).detach()
+                w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
+                w_c = w1.T @ diag @ w2.T
+                w_c = w_c.T
+                flat_w_c = w_c.flatten()
+                w_c[
+                    w_c.abs() < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.99))).values
+                    ] = 0
+                w_c.requires_grad = True
+
+                b1 = torch.clone(layer.bias * neuron_mask).detach()
+                act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
+                b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
+                b_c.requires_grad = True
+                print("Comp Weights: ", (w_c != 0.).int().sum())
+
+                next_layer.add_skip_weights(w_c, b_c)
 
 
 # Based on https://github.com/mi-lad/snip/blob/master/snip.py#L18

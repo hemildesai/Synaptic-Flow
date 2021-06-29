@@ -48,6 +48,67 @@ class TaylorLinear(nn.Linear):
         self.register_buffer("skip_bias", skip_bias)
 
 
+class TaylorConv2d(nn.Conv2d):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=1,
+        padding=0,
+        dilation=1,
+        groups=1,
+        bias=True,
+        padding_mode="zeros",
+    ):
+        super(Conv2d, self).__init__(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            groups,
+            bias,
+            padding_mode,
+        )
+        self.register_buffer("weight_mask", torch.ones(self.weight.shape))
+        if self.bias is not None:
+            self.register_buffer("bias_mask", torch.ones(self.bias.shape))
+
+    def _conv_forward(self, input, weight, bias):
+        if self.padding_mode != "zeros":
+            return F.conv2d(
+                F.pad(input, self._padding_repeated_twice, mode=self.padding_mode),
+                weight,
+                bias,
+                self.stride,
+                _pair(0),
+                self.dilation,
+                self.groups,
+            )
+        return F.conv2d(
+            input, weight, bias, self.stride, self.padding, self.dilation, self.groups
+        )
+
+    def add_skip_weights(self, skip_weight, skip_bias):
+        skip_weight = torch.nn.Parameter(skip_weight)
+        skip_bias = torch.nn.Parameter(skip_bias)
+        self.register_buffer("skip_weight", skip_weight)
+        self.register_buffer("skip_bias", skip_bias)
+
+    def forward(self, input, skip_input=None):
+        W = self.weight_mask * self.weight
+        if self.bias is not None:
+            b = self.bias_mask * self.bias
+        else:
+            b = self.bias
+        out = self._conv_forward(input, W, b)
+        if skip_input is not None and hasattr("skip_weight"):
+            out += self._conv_forward(skip_input, self.skip_weights, self.skip_bias)
+        return out
+
+
 class Conv2d(nn.Conv2d):
     def __init__(
         self,

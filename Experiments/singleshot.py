@@ -40,8 +40,8 @@ def run(args):
         num_classes,
         args.dense_classifier,
         args.pretrained,
-        linear_layer=load.linear_layer(args.linear_layer),
-    ).to(device)
+        # linear_layer=load.linear_layer(args.linear_layer),
+    ).to(device)`
 
     loss = nn.CrossEntropyLoss()
     opt_class, opt_kwargs = load.optimizer(args.optimizer)

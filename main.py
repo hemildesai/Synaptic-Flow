@@ -28,6 +28,7 @@ if __name__ == "__main__":
             "fc",
             "taylor_fc",
             "conv",
+            "taylor_conv",
             "vgg11",
             "vgg11-bn",
             "vgg13",
@@ -145,7 +146,7 @@ if __name__ == "__main__":
         "--pruner",
         type=str,
         default="rand",
-        choices=["rand", "mag", "snip", "grasp", "synflow", "taylor"],
+        choices=["rand", "mag", "snip", "grasp", "synflow", "taylor", "taylor_conv"],
         help="prune strategy (default: rand)",
     )
     pruning_args.add_argument(

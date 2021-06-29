@@ -123,6 +123,7 @@ def model(model_architecture, model_class):
         "taylor_fc": mlp.taylor_fc,
         "fc": mlp.fc,
         "conv": mlp.conv,
+        "taylor_conv": mlp.taylor_conv,
     }
     lottery_models = {
         "vgg11": lottery_vgg.vgg11,
@@ -207,6 +208,7 @@ def pruner(method):
         "grasp": pruners.GraSP,
         "synflow": pruners.SynFlow,
         "taylor": pruners.TaylorPruner,
+        "taylor_conv": pruners.TaylorConvPruner,
     }
     return prune_methods[method]
 
