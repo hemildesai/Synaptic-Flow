@@ -4,6 +4,7 @@ import copy
 import torch
 import torch.nn.functional as F
 import numpy as np
+from scipy import signal
 
 output_activations = []
 
@@ -170,9 +171,7 @@ class TaylorPruner(Pruner):
                 act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
                 b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
                 b_c.requires_grad = True
-                # import pdb; pdb.set_trace()
                 print("Comp Weights: ", (w_c != 0.).int().sum())
-                # print("Bias Weights: ", (b_c != 0.).int().sum())
 
                 next_layer.add_skip_weights(w_c, b_c)
 
@@ -227,19 +226,36 @@ class TaylorConvPruner(TaylorPruner):
 
                 w1 = torch.clone(layer.weight * mask_complement).detach()
                 w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
-                w_c = w1.T @ diag @ w2.T
-                w_c = w_c.T
-                flat_w_c = w_c.flatten()
-                w_c[
-                    w_c.abs() < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.99))).values
-                    ] = 0
-                w_c.requires_grad = True
 
-                b1 = torch.clone(layer.bias * neuron_mask).detach()
-                act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
-                b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
-                b_c.requires_grad = True
-                print("Comp Weights: ", (w_c != 0.).int().sum())
+                b1 = layer.bias
+                b2 = next_layer.bias
+
+                in_channels = w1.shape[2]
+                intermediate_channels = w1.shape[3]
+                out_channels = w2.shape[2]
+
+                w_c = np.zeros(
+                    (
+                        w1.shape[0] + w2.shape[0] - 1,
+                        w1.shape[1] + w2.shape[1] - 1,
+                        in_channels,
+                        out_channels,
+                    )
+                )
+                w1 = w1 * self.diagonals[i]
+                for i in range(in_channels):
+                    for j in range(out_channels):
+                        for k in range(intermediate_channels):
+                            w_c[:, :, i, j] += signal.convolve2d(w1[:, :, i, k], w_2[:, :, k, j])
+
+                D = np.diag(self.diagonals[i])
+                w_d = np.mean(w2, axis=(0, 1))
+                b_c = (
+                        b1 @ D @ w_d
+                        - self.diagonals[i] @ D @ w_d
+                        + self.diagonals[i] @ w_d
+                        + b2
+                )
 
                 next_layer.add_skip_weights(w_c, b_c)
 
