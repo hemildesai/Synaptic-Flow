@@ -208,7 +208,71 @@ class TaylorPruner(Pruner):
                 counter += 1
 
 
-class TaylorConvPruner(TaylorPruner):
+class TaylorConvPruner(Pruner):
+    def __init__(self, masked_parameters):
+        super().__init__(masked_parameters)
+
+    def score(self, model, loss, dataloader, device):
+        self.diagonals = []
+        global output_activations
+
+        self.generate_mapping(model)
+        self.register_hooks(model)
+
+        # with torch.no_grad():
+        for batch_idx, (data, target) in enumerate(dataloader):
+            output_activations = []
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            loss(output, target).backward()
+            break
+
+        assert len(output_activations) == len(self.mapping)
+        for activation in output_activations:
+            act_mean = torch.mean(torch.clone(activation), dim=0).detach()
+            act_mean.requires_grad = True
+            output = F.relu(act_mean)
+            output.backward(torch.ones_like(act_mean))
+            diag = torch.diag(torch.mean(act_mean.grad, dim=(1, 2)))
+            self.diagonals.append(diag)
+
+        self.deregister_hooks(model)
+
+        for _, p in self.masked_parameters:
+            self.scores[id(p)] = torch.clone(p.data).detach().abs_()
+
+    def retrieve_activations(self):
+        global output_activations
+        print(len(output_activations))
+
+    def register_hooks(self, model):
+        self.old_hooks = []
+        for index, _ in self.mapping:
+            layer = model[index]
+            self.old_hooks.append(copy.deepcopy(layer._forward_hooks))
+            layer.register_forward_hook(get_activations)
+
+    def deregister_hooks(self, model):
+        for i, (index, _) in enumerate(self.mapping):
+            layer = model[index]
+            layer._forward_hooks = self.old_hooks[i]
+
+    def generate_mapping(self, model):
+        self.mapping = []
+        counter = 0
+        for i, layer in enumerate(model):
+            if not hasattr(layer, "weight"):
+                continue
+
+            weights = layer.weight
+            while counter < len(self.masked_parameters):
+                if bool(torch.all(weights == self.masked_parameters[counter][1])):
+                    self.mapping.append((i, counter))
+                    counter += 1
+                    break
+
+                counter += 1
+
     def add_skip_weights(self, model):
         global output_activations
         for i, (layer_index, param_index) in enumerate(self.mapping):
@@ -250,10 +314,11 @@ class TaylorConvPruner(TaylorPruner):
 
                 D = np.diag(self.diagonals[i])
                 w_d = np.mean(w2, axis=(0, 1))
+                act_mean = torch.mean(torch.clone(output_activations[i]), dim=(0,1)).detach()
                 b_c = (
                         b1 @ D @ w_d
-                        - self.diagonals[i] @ D @ w_d
-                        + self.diagonals[i] @ w_d
+                        - act_mean @ D @ w_d
+                        + F.relu(self.diagonals[i]) @ w_d
                         + b2
                 )
 
