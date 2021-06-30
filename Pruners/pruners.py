@@ -310,7 +310,7 @@ class TaylorConvPruner(Pruner):
                 for i in range(in_channels):
                     for j in range(out_channels):
                         for k in range(intermediate_channels):
-                            w_c[:, :, i, j] += signal.convolve2d(w1[:, :, i, k], w_2[:, :, k, j])
+                            w_c[:, :, i, j] += signal.convolve2d(w1[:, :, i, k], w2[:, :, k, j])
 
                 D = np.diag(self.diagonals[i])
                 w_d = np.mean(w2, axis=(0, 1))
