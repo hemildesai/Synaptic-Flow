@@ -23,13 +23,22 @@ def summary(model, scores, flops, prunable):
                         total += (
                             getattr(module, "skip_weight").detach().cpu().numpy().size
                         )
+                        masked_sum += getattr(
+                            module, "skip_weight"
+                        ).detach().cpu().numpy().size - np.count_nonzero(
+                            getattr(module, "skip_weight").detach().cpu().numpy()
+                        )
 
                     if hasattr(module, "skip_weight_2"):
                         total += (
                             getattr(module, "skip_weight_2").detach().cpu().numpy().size
                         )
+                        masked_sum += getattr(
+                            module, "skip_weight_2"
+                        ).detach().cpu().numpy().size - np.count_nonzero(
+                            getattr(module, "skip_weight_2").detach().cpu().numpy()
+                        )
 
-                    # print(f"masked {masked_sum} total {total}")
                     # sparsity = getattr(module, pname+'_mask').detach().cpu().numpy().mean()
                     sparsity = masked_sum / total
                     score = scores[id(param)].detach().cpu().numpy()
