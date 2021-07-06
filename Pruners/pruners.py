@@ -163,15 +163,20 @@ class TaylorPruner(Pruner):
                 w_c = w_c.T
                 flat_w_c = w_c.flatten()
                 w_c[
-                    w_c.abs() < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.99))).values
-                    ] = 0
+                    w_c.abs()
+                    < flat_w_c.abs()
+                    .kthvalue(int(round(flat_w_c.shape[0] * 0.99)))
+                    .values
+                ] = 0
                 w_c.requires_grad = True
 
                 b1 = torch.clone(layer.bias * neuron_mask).detach()
-                act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
+                act_mean = torch.mean(
+                    torch.clone(output_activations[i]), dim=0
+                ).detach()
                 b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
                 b_c.requires_grad = True
-                print("Comp Weights: ", (w_c != 0.).int().sum())
+                print("Comp Weights: ", (w_c != 0.0).int().sum())
 
                 next_layer.add_skip_weights(w_c, b_c)
 
@@ -233,7 +238,11 @@ class TaylorConvPruner(Pruner):
             act_mean.requires_grad = True
             output = F.relu(act_mean)
             output.backward(torch.ones_like(act_mean))
-            diag = torch.diag(torch.mean(act_mean.grad, dim=(1, 2)))
+            if len(activation.shape) > 2:
+                diag = torch.diag(torch.mean(act_mean.grad, dim=(1, 2)))
+            else:
+                diag = torch.diag(act_mean.grad)
+
             self.diagonals.append(diag)
 
         self.deregister_hooks(model)
@@ -310,16 +319,20 @@ class TaylorConvPruner(Pruner):
                 for i in range(in_channels):
                     for j in range(out_channels):
                         for k in range(intermediate_channels):
-                            w_c[:, :, i, j] += signal.convolve2d(w1[:, :, i, k], w2[:, :, k, j])
+                            w_c[:, :, i, j] += signal.convolve2d(
+                                w1[:, :, i, k], w2[:, :, k, j]
+                            )
 
                 D = np.diag(self.diagonals[i])
                 w_d = np.mean(w2, axis=(0, 1))
-                act_mean = torch.mean(torch.clone(output_activations[i]), dim=(0,1)).detach()
+                act_mean = torch.mean(
+                    torch.clone(output_activations[i]), dim=(0, 1)
+                ).detach()
                 b_c = (
-                        b1 @ D @ w_d
-                        - act_mean @ D @ w_d
-                        + F.relu(self.diagonals[i]) @ w_d
-                        + b2
+                    b1 @ D @ w_d
+                    - act_mean @ D @ w_d
+                    + F.relu(self.diagonals[i]) @ w_d
+                    + b2
                 )
 
                 next_layer.add_skip_weights(w_c, b_c)
