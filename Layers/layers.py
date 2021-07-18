@@ -61,7 +61,7 @@ class TaylorConv2d(nn.Conv2d):
         bias=True,
         padding_mode="zeros",
     ):
-        super(Conv2d, self).__init__(
+        super(TaylorConv2d, self).__init__(
             in_channels,
             out_channels,
             kernel_size,

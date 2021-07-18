@@ -120,10 +120,10 @@ def taylor_conv(
 
     # Convolutional feature extractor
     modules = []
-    modules.append(layers.Conv2d(channels, N, kernel_size=3, padding=3 // 2))
+    modules.append(layers.TaylorConv2d(channels, N, kernel_size=3, padding=3 // 2))
     modules.append(nonlinearity)
     for i in range(L - 2):
-        modules.append(layers.Conv2d(N, N, kernel_size=3, padding=3 // 2))
+        modules.append(layers.TaylorConv2d(N, N, kernel_size=3, padding=3 // 2))
         modules.append(nonlinearity)
 
     # Linear classifier
