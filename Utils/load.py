@@ -4,7 +4,7 @@ from torchvision import datasets, transforms
 import torch.optim as optim
 
 from Layers import layers
-from Models import mlp
+from Models import cifar_vgg, mlp
 from Models import lottery_vgg
 from Models import lottery_resnet
 from Models import tinyimagenet_vgg
@@ -124,7 +124,16 @@ def model(model_architecture, model_class):
         "fc": mlp.fc,
         "conv": mlp.conv,
         "taylor_conv": mlp.taylor_conv,
+        "vgg11": cifar_vgg.vgg11,
+        "vgg11-bn": cifar_vgg.vgg11_bn,
+        "vgg13": cifar_vgg.vgg13,
+        "vgg13-bn": cifar_vgg.vgg13_bn,
+        "vgg16": cifar_vgg.vgg16,
+        "vgg16-bn": cifar_vgg.vgg16_bn,
+        "vgg19": cifar_vgg.vgg19,
+        "vgg19-bn": cifar_vgg.vgg19_bn,
     }
+
     lottery_models = {
         "vgg11": lottery_vgg.vgg11,
         "vgg11-bn": lottery_vgg.vgg11_bn,
@@ -209,6 +218,7 @@ def pruner(method):
         "synflow": pruners.SynFlow,
         "taylor": pruners.TaylorPruner,
         "taylor_conv": pruners.TaylorConvPruner,
+        "taylor_vgg": pruners.TaylorVGGPruner,
     }
     return prune_methods[method]
 

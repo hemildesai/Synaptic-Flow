@@ -146,7 +146,16 @@ if __name__ == "__main__":
         "--pruner",
         type=str,
         default="rand",
-        choices=["rand", "mag", "snip", "grasp", "synflow", "taylor", "taylor_conv"],
+        choices=[
+            "rand",
+            "mag",
+            "snip",
+            "grasp",
+            "synflow",
+            "taylor",
+            "taylor_conv",
+            "taylor_vgg",
+        ],
         help="prune strategy (default: rand)",
     )
     pruning_args.add_argument(

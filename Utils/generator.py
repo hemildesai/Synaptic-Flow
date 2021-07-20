@@ -15,7 +15,9 @@ def trainable(module):
 
 def prunable(module, batchnorm, residual):
     r"""Returns boolean whether a module is prunable."""
-    isprunable = isinstance(module, (layers.Linear, layers.TaylorLinear, layers.Conv2d))
+    isprunable = isinstance(
+        module, (layers.Linear, layers.TaylorLinear, layers.Conv2d, layers.TaylorConv2d)
+    )
     if batchnorm:
         isprunable |= isinstance(module, (layers.BatchNorm1d, layers.BatchNorm2d))
     if residual:

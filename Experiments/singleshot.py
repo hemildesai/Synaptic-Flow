@@ -15,7 +15,7 @@ def run(args):
     ## Random Seed and Device ##
     torch.manual_seed(args.seed)
     # device = load.device(args.gpu)
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     ## Data ##
     print("Loading {} dataset.".format(args.dataset))

@@ -275,7 +275,9 @@ class TaylorConvPruner(Pruner):
 
             weights = layer.weight
             while counter < len(self.masked_parameters):
-                if bool(torch.all(weights == self.masked_parameters[counter][1])):
+                if weights.shape == self.masked_parameters[counter][1].shape and bool(
+                    torch.all(weights == self.masked_parameters[counter][1])
+                ):
                     self.mapping.append((i, counter))
                     counter += 1
                     break
@@ -290,6 +292,135 @@ class TaylorConvPruner(Pruner):
             if i + 1 < len(self.mapping):
                 next_layer_index = self.mapping[i + 1][0]
                 next_layer = model[next_layer_index]
+                neuron_mask = torch.mean(mask_complement, dim=1)
+                neuron_mask[neuron_mask < 0.95] = 0
+                next_layer_mask = neuron_mask.unsqueeze(0).repeat(
+                    next_layer.weight.shape[0], 1
+                )
+                diag = self.diagonals[i]
+
+                w1 = torch.clone(layer.weight * mask_complement).detach()
+                w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
+
+                b1 = layer.bias
+                b2 = next_layer.bias
+
+                in_channels = w1.shape[2]
+                intermediate_channels = w1.shape[3]
+                out_channels = w2.shape[2]
+
+                w_c = np.zeros(
+                    (
+                        w1.shape[0] + w2.shape[0] - 1,
+                        w1.shape[1] + w2.shape[1] - 1,
+                        in_channels,
+                        out_channels,
+                    )
+                )
+                w1 = w1 * self.diagonals[i]
+                for i in range(in_channels):
+                    for j in range(out_channels):
+                        for k in range(intermediate_channels):
+                            w_c[:, :, i, j] += signal.convolve2d(
+                                w1[:, :, i, k], w2[:, :, k, j]
+                            )
+
+                D = np.diag(self.diagonals[i])
+                w_d = np.mean(w2, axis=(0, 1))
+                act_mean = torch.mean(
+                    torch.clone(output_activations[i]), dim=(0, 1)
+                ).detach()
+                b_c = (
+                    b1 @ D @ w_d
+                    - act_mean @ D @ w_d
+                    + F.relu(self.diagonals[i]) @ w_d
+                    + b2
+                )
+
+                next_layer.add_skip_weights(w_c, b_c)
+
+
+class TaylorVGGPruner(Pruner):
+    MODEL_ATTRS = ["features", "classifier"]
+
+    def __init__(self, masked_parameters):
+        super().__init__(masked_parameters)
+
+    def score(self, model, loss, dataloader, device):
+        self.diagonals = []
+        global output_activations
+
+        self.generate_mapping(model)
+        self.register_hooks(model)
+
+        # with torch.no_grad():
+        for batch_idx, (data, target) in enumerate(dataloader):
+            output_activations = []
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            loss(output, target).backward()
+            break
+
+        assert len(output_activations) == len(self.mapping)
+        for activation in output_activations:
+            act_mean = torch.mean(torch.clone(activation), dim=0).detach()
+            act_mean.requires_grad = True
+            output = F.relu(act_mean)
+            output.backward(torch.ones_like(act_mean))
+            if len(activation.shape) > 2:
+                diag = torch.diag(torch.mean(act_mean.grad, dim=(1, 2)))
+            else:
+                diag = torch.diag(act_mean.grad)
+
+            self.diagonals.append(diag)
+
+        self.deregister_hooks(model)
+
+        for _, p in self.masked_parameters:
+            self.scores[id(p)] = torch.clone(p.data).detach().abs_()
+
+    def register_hooks(self, model):
+        self.old_hooks = []
+        for attr, index, _ in self.mapping:
+            layer = getattr(model, attr)[index]
+            self.old_hooks.append(copy.deepcopy(layer._forward_hooks))
+            layer.register_forward_hook(get_activations)
+
+    def deregister_hooks(self, model):
+        for i, (attr, index, _) in enumerate(self.mapping):
+            layer = getattr(model, attr)[index]
+            layer._forward_hooks = self.old_hooks[i]
+
+    def generate_mapping(self, model):
+        self.mapping = []
+        counter = 0
+        for attr in self.MODEL_ATTRS:
+            module = getattr(model, attr)
+            for i, layer in enumerate(module):
+                if not hasattr(layer, "weight"):
+                    continue
+
+                weights = layer.weight
+                while counter < len(self.masked_parameters):
+                    if weights.shape == self.masked_parameters[counter][
+                        1
+                    ].shape and bool(
+                        torch.all(weights == self.masked_parameters[counter][1])
+                    ):
+                        self.mapping.append((attr, i, counter))
+                        counter += 1
+                        break
+
+                    counter += 1
+
+    def add_skip_weights(self, model):
+        global output_activations
+        for i, (attr, layer_index, param_index) in enumerate(self.mapping):
+            layer = getattr(model, attr)[layer_index]
+            mask_complement = 1 - layer.weight_mask
+            if i + 1 < len(self.mapping):
+                next_layer_attr, next_layer_index, _ = self.mapping[i + 1]
+                next_layer = getattr(model, next_layer_attr)[next_layer_index]
                 neuron_mask = torch.mean(mask_complement, dim=1)
                 neuron_mask[neuron_mask < 0.95] = 0
                 next_layer_mask = neuron_mask.unsqueeze(0).repeat(
