@@ -161,7 +161,9 @@ def vgg11(
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg("vgg11", "A", False, pretrained, progress, **kwargs)
+    return _vgg(
+        "vgg11", "A", False, pretrained, progress, num_classes=num_classes, **kwargs
+    )
 
 
 def vgg11_bn(
@@ -179,7 +181,9 @@ def vgg11_bn(
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg("vgg11_bn", "A", True, pretrained, progress, **kwargs)
+    return _vgg(
+        "vgg11_bn", "A", True, pretrained, progress, num_classes=num_classes, **kwargs
+    )
 
 
 def vgg13(
@@ -197,7 +201,9 @@ def vgg13(
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg("vgg13", "B", False, pretrained, progress, **kwargs)
+    return _vgg(
+        "vgg13", "B", False, pretrained, progress, num_classes=num_classes, **kwargs
+    )
 
 
 def vgg13_bn(
@@ -215,7 +221,9 @@ def vgg13_bn(
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg("vgg13_bn", "B", True, pretrained, progress, **kwargs)
+    return _vgg(
+        "vgg13_bn", "B", True, pretrained, progress, num_classes=num_classes, **kwargs
+    )
 
 
 def vgg16(
@@ -233,7 +241,9 @@ def vgg16(
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg("vgg16", "D", False, pretrained, progress, **kwargs)
+    return _vgg(
+        "vgg16", "D", False, pretrained, progress, num_classes=num_classes, **kwargs
+    )
 
 
 def vgg16_bn(
@@ -251,7 +261,9 @@ def vgg16_bn(
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg("vgg16_bn", "D", True, pretrained, progress, **kwargs)
+    return _vgg(
+        "vgg16_bn", "D", True, pretrained, progress, num_classes=num_classes, **kwargs
+    )
 
 
 def vgg19(
@@ -269,7 +281,9 @@ def vgg19(
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg("vgg19", "E", False, pretrained, progress, **kwargs)
+    return _vgg(
+        "vgg19", "E", False, pretrained, progress, num_classes=num_classes, **kwargs
+    )
 
 
 def vgg19_bn(
@@ -287,4 +301,6 @@ def vgg19_bn(
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg("vgg19_bn", "E", True, pretrained, progress, **kwargs)
+    return _vgg(
+        "vgg19_bn", "E", True, pretrained, progress, num_classes=num_classes, **kwargs
+    )
