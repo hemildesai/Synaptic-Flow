@@ -295,9 +295,9 @@ class TaylorConvPruner(Pruner):
                 neuron_mask = torch.mean(mask_complement, dim=1)
                 neuron_mask[neuron_mask < 0.95] = 0
                 next_layer_mask = neuron_mask.unsqueeze(0).repeat(
-                    next_layer.weight.shape[0], 1
+                    next_layer.weight.shape[0],
+                    *[1 for i in range(len(next_layer.weight.shape[1:]))],
                 )
-                diag = self.diagonals[i]
 
                 w1 = torch.clone(layer.weight * mask_complement).detach()
                 w2 = torch.clone(next_layer.weight * next_layer_mask).detach()

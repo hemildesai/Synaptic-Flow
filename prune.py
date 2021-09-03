@@ -38,7 +38,10 @@ def prune_loop(
             pruner.invert()
 
         pruner.mask(sparse, scope)
-        if isinstance(pruner, pruners.TaylorPruner):
+        if isinstance(
+            pruner,
+            (pruners.TaylorPruner, pruners.TaylorConvPruner, pruners.TaylorVGGPruner),
+        ):
             pruner.add_skip_weights(model)
 
     # Reainitialize weights

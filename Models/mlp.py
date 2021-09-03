@@ -90,11 +90,14 @@ def fc(
 
 class TaylorConv(nn.Sequential):
     def forward(self, input):
-        outputs = []
+        outputs = [input]
         output = input
         for i, module in enumerate(self):
             if (
-                isinstance(module, layers.TaylorLinear)
+                (
+                    isinstance(module, layers.TaylorLinear)
+                    or isinstance(module, layers.TaylorConv2d)
+                )
                 and len(outputs) > 2
                 and hasattr(module, "skip_weight")
             ):
@@ -115,6 +118,7 @@ def taylor_conv(
     L=3,
     N=32,
     nonlinearity=nn.ReLU(),
+    linear_layer=layers.Linear,
 ):
     channels, width, height = input_shape
 
@@ -128,10 +132,10 @@ def taylor_conv(
 
     # Linear classifier
     modules.append(nn.Flatten())
-    if dense_classifier:
-        modules.append(nn.Linear(N * width * height, num_classes))
-    else:
-        modules.append(layers.Linear(N * width * height, num_classes))
+    # if dense_classifier:
+    #     modules.append(linear_layer(N * width * height, num_classes))
+    # else:
+    modules.append(linear_layer(N * width * height, num_classes))
     model = TaylorConv(*modules)
 
     # Pretrained model
@@ -149,6 +153,7 @@ def conv(
     L=3,
     N=32,
     nonlinearity=nn.ReLU(),
+    linear_layer=layers.Linear,
 ):
     channels, width, height = input_shape
 
@@ -165,7 +170,7 @@ def conv(
     if dense_classifier:
         modules.append(nn.Linear(N * width * height, num_classes))
     else:
-        modules.append(layers.Linear(N * width * height, num_classes))
+        modules.append(linear_layer(N * width * height, num_classes))
     model = nn.Sequential(*modules)
 
     # Pretrained model
