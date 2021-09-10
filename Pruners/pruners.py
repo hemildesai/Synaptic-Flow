@@ -492,7 +492,6 @@ class TaylorVGGPruner(Pruner):
             + F.relu(D) @ w_d.T
             + b2
         )
-        b_c.requires_grad = True
         next_layer.add_skip_weights(w_c, b_c)
 
     def add_skip_weights(self, model):
