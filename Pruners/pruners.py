@@ -324,6 +324,7 @@ class TaylorConvPruner(Pruner):
                             w_c[:, :, i, j] += signal.convolve2d(
                                 w1[:, :, i, k], w2[:, :, k, j]
                             )
+                w_c = torch.tensor(w_c, dtype=torch.float32, device="cuda")
 
                 D = np.diag(self.diagonals[i])
                 w_d = np.mean(w2, axis=(0, 1))
@@ -347,6 +348,7 @@ class TaylorVGGPruner(Pruner):
         super().__init__(masked_parameters)
 
     def score(self, model, loss, dataloader, device):
+        self.device = device
         self.diagonals = []
         global output_activations
 
@@ -440,6 +442,8 @@ class TaylorVGGPruner(Pruner):
                 intermediate_channels = w1.shape[3]
                 out_channels = w2.shape[2]
 
+                w1_cpu = w1.cpu()
+                w2_cpu = w2.cpu()
                 w_c = np.zeros(
                     (
                         out_channels,
@@ -455,9 +459,11 @@ class TaylorVGGPruner(Pruner):
                     for j in range(out_channels):
                         for k in range(intermediate_channels):
                             w_c[j, a, :, :] += signal.convolve2d(
-                                w1[k, a, :, :], w2[j, k, :, :]
+                                w1_cpu[k, a, :, :], w2_cpu[j, k, :, :]
                             )
-                w_c = torch.tensor(w_c, dtype=torch.float32, device="cuda")
+                w_c = torch.tensor(
+                    w_c, dtype=torch.float32, device=self.device or "cuda"
+                )
 
                 w_d = torch.mean(w2, dim=(2, 3))
                 act_mean = torch.mean(
