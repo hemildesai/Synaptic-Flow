@@ -465,7 +465,7 @@ class TaylorVGGPruner(Pruner):
                     w_c, dtype=torch.float32, device=self.device or "cuda"
                 )
 
-                w_d = torch.mean(w2, dim=(2, 3))
+                w_d = torch.mean(w2, dim=(0, 2, 3))
                 act_mean = torch.mean(
                     torch.clone(output_activations[i]), dim=(0, 2, 3)
                 ).detach()
