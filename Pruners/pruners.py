@@ -146,7 +146,6 @@ class TaylorPruner(Pruner):
         for i, (layer_index, param_index) in enumerate(self.mapping):
             layer = model[layer_index]
             mask_complement = 1 - layer.weight_mask
-            print(mask_complement.shape)
             if i + 1 < len(self.mapping):
                 next_layer_index = self.mapping[i + 1][0]
                 next_layer = model[next_layer_index]
@@ -465,14 +464,14 @@ class TaylorVGGPruner(Pruner):
                     w_c, dtype=torch.float32, device=self.device or "cuda"
                 )
 
-                w_d = torch.mean(w2, dim=(0, 2, 3))
+                w_d = torch.mean(w2, dim=(2, 3))
                 act_mean = torch.mean(
                     torch.clone(output_activations[i]), dim=(0, 2, 3)
                 ).detach()
                 b_c = (
-                    b1 @ D @ w_d
-                    - act_mean @ D @ w_d
-                    + F.relu(self.diagonals[i]) @ w_d
+                    b1 @ self.diagonals[i] @ w_d.T
+                    - act_mean @ self.diagonals[i] @ w_d.T
+                    + F.relu(D) @ w_d.T
                     + b2
                 )
                 next_layer.add_skip_weights(w_c, b_c)
