@@ -480,6 +480,7 @@ class TaylorVGGPruner(Pruner):
                         w1_cpu[k, a, :, :], w2_cpu[j, k, :, :]
                     )
         w_c = torch.tensor(w_c, dtype=torch.float32, device=self.device or "cuda")
+        w_c.requires_grad = True
 
         w_d = torch.mean(w2, dim=(2, 3))
         act_mean = torch.mean(
@@ -491,6 +492,7 @@ class TaylorVGGPruner(Pruner):
             + F.relu(D) @ w_d.T
             + b2
         )
+        b_c.requires_grad = True
         next_layer.add_skip_weights(w_c, b_c)
 
     def add_skip_weights(self, model):
