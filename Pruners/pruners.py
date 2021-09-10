@@ -448,9 +448,9 @@ class TaylorVGGPruner(Pruner):
                         w1.shape[3] + w2.shape[3] - 1,
                     )
                 )
-                w1 = w1 * torch.reshape(
-                    self.diagonals[i], (self.diagonals[i].shape[0], 1, 1, 1)
-                )
+
+                D = torch.diag(self.diagonals[i])
+                w1 = w1 * torch.reshape(D, (D.shape[0], 1, 1, 1))
                 for a in range(in_channels):
                     for j in range(out_channels):
                         for k in range(intermediate_channels):
@@ -459,7 +459,6 @@ class TaylorVGGPruner(Pruner):
                             )
                 w_c = torch.tensor(w_c, dtype=torch.float32, device="cuda")
 
-                D = torch.diag(self.diagonals[i])
                 w_d = torch.mean(w2, dim=(2, 3))
                 act_mean = torch.mean(
                     torch.clone(output_activations[i]), dim=(0, 2, 3)
