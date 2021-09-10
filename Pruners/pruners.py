@@ -1,10 +1,13 @@
 from collections import OrderedDict
 import copy
+from re import L
 
 import torch
 import torch.nn.functional as F
 import numpy as np
 from scipy import signal
+
+from Layers import layers
 
 output_activations = []
 
@@ -414,6 +417,82 @@ class TaylorVGGPruner(Pruner):
 
                     counter += 1
 
+    def add_skip_weights_linear(self, layer, next_layer, mask_complement, i):
+        neuron_mask = torch.mean(mask_complement, dim=1)
+        neuron_mask[neuron_mask < 0.95] = 0
+        next_layer_mask = neuron_mask.unsqueeze(0).repeat(next_layer.weight.shape[0], 1)
+        diag = self.diagonals[i]
+
+        w1 = torch.clone(layer.weight * mask_complement).detach()
+        w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
+        w_c = w1.T @ diag @ w2.T
+        w_c = w_c.T
+        flat_w_c = w_c.flatten()
+        w_c[
+            w_c.abs()
+            < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.99))).values
+        ] = 0
+        w_c.requires_grad = True
+
+        b1 = torch.clone(layer.bias * neuron_mask).detach()
+        act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
+        b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
+        b_c.requires_grad = True
+        print("Comp Weights: ", (w_c != 0.0).int().sum())
+
+        next_layer.add_skip_weights(w_c, b_c)
+
+    def add_skip_weights_conv(self, layer, next_layer, mask_complement, i):
+        neuron_mask = torch.mean(mask_complement, dim=1)
+        neuron_mask[neuron_mask < 0.95] = 0
+        next_layer_mask = neuron_mask.unsqueeze(0).repeat(
+            next_layer.weight.shape[0],
+            *[1 for i in range(len(next_layer.weight.shape[1:]))],
+        )
+
+        w1 = torch.clone(layer.weight * mask_complement).detach()
+        w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
+
+        b1 = layer.bias
+        b2 = next_layer.bias
+
+        in_channels = w1.shape[2]
+        intermediate_channels = w1.shape[3]
+        out_channels = w2.shape[2]
+
+        w1_cpu = w1.cpu()
+        w2_cpu = w2.cpu()
+        w_c = np.zeros(
+            (
+                out_channels,
+                in_channels,
+                w1.shape[2] + w2.shape[2] - 1,
+                w1.shape[3] + w2.shape[3] - 1,
+            )
+        )
+
+        D = torch.diag(self.diagonals[i])
+        w1 = w1 * torch.reshape(D, (D.shape[0], 1, 1, 1))
+        for a in range(in_channels):
+            for j in range(out_channels):
+                for k in range(intermediate_channels):
+                    w_c[j, a, :, :] += signal.convolve2d(
+                        w1_cpu[k, a, :, :], w2_cpu[j, k, :, :]
+                    )
+        w_c = torch.tensor(w_c, dtype=torch.float32, device=self.device or "cuda")
+
+        w_d = torch.mean(w2, dim=(2, 3))
+        act_mean = torch.mean(
+            torch.clone(output_activations[i]), dim=(0, 2, 3)
+        ).detach()
+        b_c = (
+            b1 @ self.diagonals[i] @ w_d.T
+            - act_mean @ self.diagonals[i] @ w_d.T
+            + F.relu(D) @ w_d.T
+            + b2
+        )
+        next_layer.add_skip_weights(w_c, b_c)
+
     def add_skip_weights(self, model):
         global output_activations
         for i, (attr, layer_index, param_index) in enumerate(self.mapping):
@@ -424,57 +503,10 @@ class TaylorVGGPruner(Pruner):
                 next_layer = getattr(model, next_layer_attr)[next_layer_index]
                 if type(layer) != type(next_layer):
                     continue
-                neuron_mask = torch.mean(mask_complement, dim=1)
-                neuron_mask[neuron_mask < 0.95] = 0
-                next_layer_mask = neuron_mask.unsqueeze(0).repeat(
-                    next_layer.weight.shape[0],
-                    *[1 for i in range(len(next_layer.weight.shape[1:]))],
-                )
-
-                w1 = torch.clone(layer.weight * mask_complement).detach()
-                w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
-
-                b1 = layer.bias
-                b2 = next_layer.bias
-
-                in_channels = w1.shape[2]
-                intermediate_channels = w1.shape[3]
-                out_channels = w2.shape[2]
-
-                w1_cpu = w1.cpu()
-                w2_cpu = w2.cpu()
-                w_c = np.zeros(
-                    (
-                        out_channels,
-                        in_channels,
-                        w1.shape[2] + w2.shape[2] - 1,
-                        w1.shape[3] + w2.shape[3] - 1,
-                    )
-                )
-
-                D = torch.diag(self.diagonals[i])
-                w1 = w1 * torch.reshape(D, (D.shape[0], 1, 1, 1))
-                for a in range(in_channels):
-                    for j in range(out_channels):
-                        for k in range(intermediate_channels):
-                            w_c[j, a, :, :] += signal.convolve2d(
-                                w1_cpu[k, a, :, :], w2_cpu[j, k, :, :]
-                            )
-                w_c = torch.tensor(
-                    w_c, dtype=torch.float32, device=self.device or "cuda"
-                )
-
-                w_d = torch.mean(w2, dim=(2, 3))
-                act_mean = torch.mean(
-                    torch.clone(output_activations[i]), dim=(0, 2, 3)
-                ).detach()
-                b_c = (
-                    b1 @ self.diagonals[i] @ w_d.T
-                    - act_mean @ self.diagonals[i] @ w_d.T
-                    + F.relu(D) @ w_d.T
-                    + b2
-                )
-                next_layer.add_skip_weights(w_c, b_c)
+                elif isinstance(layer, layers.TaylorConv2d):
+                    self.add_skip_weights_conv(layer, next_layer, mask_complement, i)
+                else:
+                    self.add_skip_weights_linear(layer, next_layer, mask_complement, i)
 
 
 # Based on https://github.com/mi-lad/snip/blob/master/snip.py#L18
