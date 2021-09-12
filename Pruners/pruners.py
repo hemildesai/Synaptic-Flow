@@ -241,9 +241,9 @@ class TaylorConvPruner(Pruner):
             output = F.relu(act_mean)
             output.backward(torch.ones_like(act_mean))
             if len(activation.shape) > 2:
-                diag = torch.diag(torch.mean(act_mean.grad, dim=(1, 2)))
+                diag = torch.mean(act_mean.grad, dim=(1, 2))
             else:
-                diag = torch.diag(act_mean.grad)
+                diag = act_mean.grad
 
             self.diagonals.append(diag)
 
@@ -294,6 +294,8 @@ class TaylorConvPruner(Pruner):
             if i + 1 < len(self.mapping):
                 next_layer_index = self.mapping[i + 1][0]
                 next_layer = model[next_layer_index]
+                if type(layer) != type(next_layer):
+                    continue
                 neuron_mask = torch.mean(mask_complement, dim=1)
                 neuron_mask[neuron_mask < 0.95] = 0
                 next_layer_mask = neuron_mask.unsqueeze(0).repeat(
@@ -307,39 +309,44 @@ class TaylorConvPruner(Pruner):
                 b1 = layer.bias
                 b2 = next_layer.bias
 
-                in_channels = w1.shape[2]
-                intermediate_channels = w1.shape[3]
-                out_channels = w2.shape[2]
+                # import pdb; pdb.set_trace()
+                in_channels = w1.shape[1]
+                intermediate_channels = w1.shape[0]
+                out_channels = w2.shape[0]
 
                 w_c = np.zeros(
                     (
-                        w1.shape[0] + w2.shape[0] - 1,
-                        w1.shape[1] + w2.shape[1] - 1,
-                        in_channels,
                         out_channels,
+                        in_channels,
+                        w1.shape[2] + w2.shape[2] - 1,
+                        w1.shape[3] + w2.shape[3] - 1,
                     )
                 )
-                w1 = w1 * self.diagonals[i]
-                for i in range(in_channels):
+                w1 = w1 * torch.reshape(self.diagonals[i], (self.diagonals[i].shape[0], 1, 1, 1))
+                w1_cpu = w1.cpu()
+                w2_cpu = w2.cpu()
+                for a in range(in_channels):
                     for j in range(out_channels):
                         for k in range(intermediate_channels):
-                            w_c[:, :, i, j] += signal.convolve2d(
-                                w1[:, :, i, k], w2[:, :, k, j]
+                            # import pdb; pdb.set_trace()
+                            w_c[j, a, :, :] += signal.convolve2d(
+                                w1_cpu[k, a, :, :], w2_cpu[j, k, :, :]
                             )
                 w_c = torch.tensor(w_c, dtype=torch.float32, device="cuda")
 
-                D = np.diag(self.diagonals[i])
-                w_d = np.mean(w2, axis=(0, 1))
+                D = torch.diag(self.diagonals[i])
+                w_d = torch.mean(w2, dim=(2, 3))
                 act_mean = torch.mean(
-                    torch.clone(output_activations[i]), dim=(0, 1)
+                    torch.clone(output_activations[i]), dim=(0, 2, 3)
                 ).detach()
+                # import pdb; pdb.set_trace()
                 b_c = (
                     b1 @ D @ w_d
                     - act_mean @ D @ w_d
                     + F.relu(self.diagonals[i]) @ w_d
                     + b2
                 )
-
+                # import pdb; pdb.set_trace()
                 next_layer.add_skip_weights(w_c, b_c)
 
 

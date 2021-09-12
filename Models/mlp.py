@@ -116,7 +116,7 @@ def taylor_conv(
     dense_classifier=False,
     pretrained=False,
     L=3,
-    N=32,
+    N=64,
     nonlinearity=nn.ReLU(),
     linear_layer=layers.Linear,
 ):

@@ -104,8 +104,12 @@ class TaylorConv2d(nn.Conv2d):
         else:
             b = self.bias
         out = self._conv_forward(input, W, b)
-        if skip_input is not None and hasattr("skip_weight"):
-            out += self._conv_forward(skip_input, self.skip_weight, self.skip_bias)
+        if skip_input is not None and hasattr(self, "skip_weight"):
+            out += self._conv_forward(
+                F.pad(skip_input, (1, 1, 1, 1), "constant"),
+                self.skip_weight,
+                self.skip_bias
+            )
         return out
 
 
