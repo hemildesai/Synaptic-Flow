@@ -167,9 +167,9 @@ class TaylorPruner(Pruner):
                 w_c[
                     w_c.abs()
                     < flat_w_c.abs()
-                    .kthvalue(int(round(flat_w_c.shape[0] * 0.99)))
-                    .values
-                ] = 0
+                        .kthvalue(int(round(flat_w_c.shape[0] * 0.99)))
+                        .values
+                    ] = 0
                 w_c.requires_grad = True
 
                 b1 = torch.clone(layer.bias * neuron_mask).detach()
@@ -278,7 +278,7 @@ class TaylorConvPruner(Pruner):
             weights = layer.weight
             while counter < len(self.masked_parameters):
                 if weights.shape == self.masked_parameters[counter][1].shape and bool(
-                    torch.all(weights == self.masked_parameters[counter][1])
+                        torch.all(weights == self.masked_parameters[counter][1])
                 ):
                     self.mapping.append((i, counter))
                     counter += 1
@@ -341,10 +341,10 @@ class TaylorConvPruner(Pruner):
                 ).detach()
                 # import pdb; pdb.set_trace()
                 b_c = (
-                    b1 @ D @ w_d
-                    - act_mean @ D @ w_d
-                    + F.relu(self.diagonals[i]) @ w_d
-                    + b2
+                        b1 @ D @ w_d
+                        - act_mean @ D @ w_d
+                        + F.relu(self.diagonals[i]) @ w_d
+                        + b2
                 )
                 # import pdb; pdb.set_trace()
                 next_layer.add_skip_weights(w_c, b_c)
@@ -499,9 +499,11 @@ class TaylorVGGPruner(Pruner):
             + F.relu(D) @ w_d.T
             + b2
         )
+        print("Add skip connection conv")
         next_layer.add_skip_weights(w_c, b_c)
 
     def add_skip_weights(self, model):
+        print("Adding skip weights")
         global output_activations
         for i, (attr, layer_index, param_index) in enumerate(self.mapping):
             layer = getattr(model, attr)[layer_index]
