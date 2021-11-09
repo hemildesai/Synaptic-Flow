@@ -3,6 +3,7 @@ import json
 import os
 from Experiments import singleshot
 from Experiments import multishot
+from Experiments import taylor_iterative
 from Experiments.theory import unit_conservation
 from Experiments.theory import layer_conservation
 from Experiments.theory import imp_conservation
@@ -272,6 +273,7 @@ if __name__ == "__main__":
         type=str,
         default="singleshot",
         choices=[
+            "taylor_iterative",
             "singleshot",
             "multishot",
             "unit-conservation",
@@ -335,6 +337,8 @@ if __name__ == "__main__":
             json.dump(args.__dict__, f, sort_keys=True, indent=4)
 
     ## Run Experiment ##
+    if args.experiment == "taylor_iterative":
+        taylor_iterative.run(args)
     if args.experiment == "singleshot":
         singleshot.run(args)
     if args.experiment == "multishot":
