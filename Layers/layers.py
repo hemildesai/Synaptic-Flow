@@ -38,14 +38,20 @@ class TaylorLinear(nn.Linear):
             b = self.bias
         out = F.linear(input, W, b)
         if skip_input is not None and hasattr(self, "skip_weight"):
-            out += F.linear(skip_input, self.skip_weight, self.skip_bias)
+            skip_weight = self.skip_weight_mask * self.skip_weight
+            skip_bias = self.skip_bias_mask * self.skip_bias
+            out += F.linear(skip_input, skip_weight, skip_bias)
         return out
 
     def add_skip_weights(self, skip_weight, skip_bias):
+        skip_weight_mask = (skip_weight != 0).type(torch.float32)
+        skip_bias_mask = (skip_weight != 0).type(torch.float32)
+        self.register_buffer("skip_weight_mask", skip_weight_mask)
+        self.register_buffer("skip_bias_mask", skip_bias_mask)
         skip_weight = torch.nn.Parameter(skip_weight)
         skip_bias = torch.nn.Parameter(skip_bias)
-        self.register_buffer("skip_weight", skip_weight)
-        self.register_buffer("skip_bias", skip_bias)
+        self.register_parameter("skip_weight", skip_weight)
+        self.register_parameter("skip_bias", skip_bias)
 
 
 class TaylorConv2d(nn.Conv2d):
@@ -92,10 +98,14 @@ class TaylorConv2d(nn.Conv2d):
         )
 
     def add_skip_weights(self, skip_weight, skip_bias):
+        skip_weight_mask = (skip_weight != 0).type(torch.float32)
+        skip_bias_mask = (skip_weight != 0).type(torch.float32)
+        self.register_buffer("skip_weight_mask", skip_weight_mask)
+        self.register_buffer("skip_bias_mask", skip_bias_mask)
         skip_weight = torch.nn.Parameter(skip_weight)
         skip_bias = torch.nn.Parameter(skip_bias)
-        self.register_buffer("skip_weight", skip_weight)
-        self.register_buffer("skip_bias", skip_bias)
+        self.register_parameter("skip_weight", skip_weight)
+        self.register_parameter("skip_bias", skip_bias)
 
     def forward(self, input, skip_input=None):
         W = self.weight_mask * self.weight
@@ -105,10 +115,12 @@ class TaylorConv2d(nn.Conv2d):
             b = self.bias
         out = self._conv_forward(input, W, b)
         if skip_input is not None and hasattr(self, "skip_weight"):
+            skip_weight = self.skip_weight_mask * self.skip_weight
+            skip_bias = self.skip_bias_mask * self.skip_bias
             out += self._conv_forward(
                 F.pad(skip_input, (1, 1, 1, 1), "constant"),
-                self.skip_weight,
-                self.skip_bias
+                skip_weight,
+                skip_bias
             )
         return out
 
