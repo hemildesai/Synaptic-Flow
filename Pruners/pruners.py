@@ -426,7 +426,7 @@ class TaylorVGGPruner(Pruner):
 
     def add_skip_weights_linear(self, layer, next_layer, mask_complement, i):
         neuron_mask = torch.mean(mask_complement, dim=1)
-        neuron_mask[neuron_mask < 0.95] = 0
+        neuron_mask[neuron_mask < 0.9] = 0
         next_layer_mask = neuron_mask.unsqueeze(0).repeat(next_layer.weight.shape[0], 1)
         diag = self.diagonals[i]
 
@@ -437,7 +437,7 @@ class TaylorVGGPruner(Pruner):
         flat_w_c = w_c.flatten()
         w_c[
             w_c.abs()
-            < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.99))).values
+            < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.95))).values
         ] = 0
         w_c.requires_grad = True
 
@@ -451,7 +451,7 @@ class TaylorVGGPruner(Pruner):
 
     def add_skip_weights_conv(self, layer, next_layer, mask_complement, i):
         neuron_mask = torch.mean(mask_complement, dim=1)
-        neuron_mask[neuron_mask < 0.95] = 0
+        neuron_mask[neuron_mask < 0.9] = 0
         next_layer_mask = neuron_mask.unsqueeze(0).repeat(
             next_layer.weight.shape[0],
             *[1 for i in range(len(next_layer.weight.shape[1:]))],
