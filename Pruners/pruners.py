@@ -437,7 +437,7 @@ class TaylorVGGPruner(Pruner):
         flat_w_c = w_c.flatten()
         w_c[
             w_c.abs()
-            < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.95))).values
+            < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.99))).values
         ] = 0
         w_c.requires_grad = True
 
