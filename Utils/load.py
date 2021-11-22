@@ -219,6 +219,7 @@ def pruner(method):
         "taylor": pruners.TaylorPruner,
         "taylor_conv": pruners.TaylorConvPruner,
         "taylor_vgg": pruners.TaylorVGGPruner,
+        "taylor_grasp_vgg": pruners.TaylorGraspVGGPruner,
     }
     return prune_methods[method]
 

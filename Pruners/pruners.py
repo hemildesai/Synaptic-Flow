@@ -519,6 +519,182 @@ class TaylorVGGPruner(Pruner):
                     self.add_skip_weights_linear(layer, next_layer, mask_complement, i)
 
 
+class TaylorGraspVGGPruner(Pruner):
+    MODEL_ATTRS = ["features", "classifier"]
+
+    def __init__(self, masked_parameters):
+        super().__init__(masked_parameters)
+        self.temp = 200
+        self.eps = 1e-10
+
+    def score(self, model, loss, dataloader, device):
+        # first gradient vector without computational graph
+        stopped_grads = 0
+        for batch_idx, (data, target) in enumerate(dataloader):
+            data, target = data.to(device), target.to(device)
+            output = model(data) / self.temp
+            L = loss(output, target)
+
+            grads = torch.autograd.grad(
+                L, [p for (_, p) in self.masked_parameters], create_graph=False
+            )
+            flatten_grads = torch.cat([g.reshape(-1) for g in grads if g is not None])
+            stopped_grads += flatten_grads
+
+        # second gradient vector with computational graph
+        for batch_idx, (data, target) in enumerate(dataloader):
+            data, target = data.to(device), target.to(device)
+            output = model(data) / self.temp
+            L = loss(output, target)
+
+            grads = torch.autograd.grad(
+                L, [p for (_, p) in self.masked_parameters], create_graph=True
+            )
+            flatten_grads = torch.cat([g.reshape(-1) for g in grads if g is not None])
+
+            gnorm = (stopped_grads * flatten_grads).sum()
+            gnorm.backward()
+
+        # calculate score Hg * theta (negate to remove top percent)
+        for _, p in self.masked_parameters:
+            self.scores[id(p)] = torch.clone(p.grad * p.data).detach()
+            p.grad.data.zero_()
+
+        # normalize score
+        all_scores = torch.cat([torch.flatten(v) for v in self.scores.values()])
+        norm = torch.abs(torch.sum(all_scores)) + self.eps
+        for _, p in self.masked_parameters:
+            self.scores[id(p)].div_(norm)
+
+    def register_hooks(self, model):
+        self.old_hooks = []
+        for attr, index, _ in self.mapping:
+            layer = getattr(model, attr)[index]
+            self.old_hooks.append(copy.deepcopy(layer._forward_hooks))
+            layer.register_forward_hook(get_activations)
+
+    def deregister_hooks(self, model):
+        for i, (attr, index, _) in enumerate(self.mapping):
+            layer = getattr(model, attr)[index]
+            layer._forward_hooks = self.old_hooks[i]
+
+    def generate_mapping(self, model):
+        self.mapping = []
+        counter = 0
+        for attr in self.MODEL_ATTRS:
+            module = getattr(model, attr)
+            for i, layer in enumerate(module):
+                if not hasattr(layer, "weight"):
+                    continue
+
+                weights = layer.weight
+                while counter < len(self.masked_parameters):
+                    if weights.shape == self.masked_parameters[counter][
+                        1
+                    ].shape and bool(
+                        torch.all(weights == self.masked_parameters[counter][1])
+                    ):
+                        self.mapping.append((attr, i, counter))
+                        counter += 1
+                        break
+
+                    counter += 1
+
+    def add_skip_weights_linear(self, layer, next_layer, mask_complement, i):
+        neuron_mask = torch.mean(mask_complement, dim=1)
+        neuron_mask[neuron_mask < 0.9] = 0
+        next_layer_mask = neuron_mask.unsqueeze(0).repeat(next_layer.weight.shape[0], 1)
+        diag = self.diagonals[i]
+
+        w1 = torch.clone(layer.weight * mask_complement).detach()
+        w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
+        w_c = w1.T @ diag @ w2.T
+        w_c = w_c.T
+        flat_w_c = w_c.flatten()
+        w_c[
+            w_c.abs()
+            < flat_w_c.abs().kthvalue(int(round(flat_w_c.shape[0] * 0.99))).values
+            ] = 0
+        w_c.requires_grad = True
+
+        b1 = torch.clone(layer.bias * neuron_mask).detach()
+        act_mean = torch.mean(torch.clone(output_activations[i]), dim=0).detach()
+        b_c = w2 @ (F.relu(act_mean) + diag @ (b1 - act_mean))
+        b_c.requires_grad = True
+        print("Comp Weights: ", (w_c != 0.0).int().sum())
+
+        next_layer.add_skip_weights(w_c, b_c)
+
+    def add_skip_weights_conv(self, layer, next_layer, mask_complement, i):
+        neuron_mask = torch.mean(mask_complement, dim=1)
+        neuron_mask[neuron_mask < 0.9] = 0
+        next_layer_mask = neuron_mask.unsqueeze(0).repeat(
+            next_layer.weight.shape[0],
+            *[1 for i in range(len(next_layer.weight.shape[1:]))],
+        )
+
+        w1 = torch.clone(layer.weight * mask_complement).detach()
+        w2 = torch.clone(next_layer.weight * next_layer_mask).detach()
+
+        b1 = layer.bias
+        b2 = next_layer.bias
+
+        in_channels = w1.shape[2]
+        intermediate_channels = w1.shape[3]
+        out_channels = w2.shape[2]
+
+        w1_cpu = w1.cpu()
+        w2_cpu = w2.cpu()
+        w_c = np.zeros(
+            (
+                out_channels,
+                in_channels,
+                w1.shape[2] + w2.shape[2] - 1,
+                w1.shape[3] + w2.shape[3] - 1,
+            )
+        )
+
+        D = torch.diag(self.diagonals[i])
+        w1 = w1 * torch.reshape(D, (D.shape[0], 1, 1, 1))
+        for a in range(in_channels):
+            for j in range(out_channels):
+                for k in range(intermediate_channels):
+                    w_c[j, a, :, :] += signal.convolve2d(
+                        w1_cpu[k, a, :, :], w2_cpu[j, k, :, :]
+                    )
+        w_c = torch.tensor(w_c, dtype=torch.float32, device=self.device or "cuda")
+        w_c.requires_grad = True
+
+        w_d = torch.mean(w2, dim=(2, 3))
+        act_mean = torch.mean(
+            torch.clone(output_activations[i]), dim=(0, 2, 3)
+        ).detach()
+        b_c = (
+                b1 @ self.diagonals[i] @ w_d.T
+                - act_mean @ self.diagonals[i] @ w_d.T
+                + F.relu(D) @ w_d.T
+                + b2
+        )
+        print("Add skip connection conv")
+        next_layer.add_skip_weights(w_c, b_c)
+
+    def add_skip_weights(self, model):
+        print("Adding skip weights")
+        global output_activations
+        for i, (attr, layer_index, param_index) in enumerate(self.mapping):
+            layer = getattr(model, attr)[layer_index]
+            mask_complement = 1 - layer.weight_mask
+            if i + 1 < len(self.mapping):
+                next_layer_attr, next_layer_index, _ = self.mapping[i + 1]
+                next_layer = getattr(model, next_layer_attr)[next_layer_index]
+                if type(layer) != type(next_layer):
+                    continue
+                elif isinstance(layer, layers.TaylorConv2d):
+                    self.add_skip_weights_conv(layer, next_layer, mask_complement, i)
+                else:
+                    self.add_skip_weights_linear(layer, next_layer, mask_complement, i)
+
+
 # Based on https://github.com/mi-lad/snip/blob/master/snip.py#L18
 class SNIP(Pruner):
     def __init__(self, masked_parameters):

@@ -156,6 +156,7 @@ if __name__ == "__main__":
             "taylor",
             "taylor_conv",
             "taylor_vgg",
+            "taylor_grasp_vgg",
         ],
         help="prune strategy (default: rand)",
     )
